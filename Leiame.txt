@@ -1,0 +1,44 @@
+08-03
+    Dia Intenacional da Mulher
+    Deslocamento: O peso físico total da estrutura + conteúdo.
+    O termo deslocamento é usado porque o peso da embarcação é igual ao peso do volume d' água deslocada.
+    Porte Bruto (DWT):	Quanto peso o navio consegue carregar além dele mesmo.
+    Calado de um navio:  draft (no inglês americano) ou draught (no inglês britânico).
+    Berço de atracação: com 19 metros de profundidade, ele pode receber navios com calado de até cerca de 18,5 metros, dependendo da maré.
+    Draft survey: 
+    calado é a parte submersa do casco.
+    Draft marks/Draught marks: Marcas de calado no casco.
+    Este peso chama-se toneladas por centímetro quando representa o número de toneladas métricas necessárias para fazer variar o calado de um centímetro.
+    Deep draught: Calado profundo.
+    lastro de um navio em inglês chama-se ballast.
+    Ballast water: Água de lastro.
+    Ballast tank: Tanque de lastro.
+
+11-03
+    criei essa pasta.
+    atualizado index10.html com seguinte:
+    4 réguas de calado;
+    céu branco;
+    Letras ProA e PoPa;
+    distorcao x = 90
+    Parametro camera de cenario mais legivel. Segue prints.
+    
+12-03 index13.html
+    Todos movimentos corrigidos.
+
+    Comeca muito embaixo o nivel de preenchimento do porao, o ideal é que 100% atinja o conves 
+    do navio. Sendo necessario input de 238% para transbordar qualquer porão. Suba mais o fundo 
+    do porão para que 100% de enchimento atinja o convés do navio. 
+
+    Faça toda a alteração num arquivo único html. (index14.html)
+
+A imagem que o navio esta submerso é o inicio que está posicionado muito submerso no mar. 
+Isso gera o problema na imagem seguinte, onde 30 toneladas inseridas em cada porão, já submerge 
+o navio assim falhando a missão no simulador. Este valor está muito estreito devido a posição 
+inicial do navio no fundo do mar com os tanques de lastro com valor inicial de 100 toneladas 
+cada um. Acerte subindo mais o navio ou trazendo o mar mais para baixo no viewport. 
+
+    Criar cavidades de bocas no conves para os poroes.
+
+14-03
+	Subi site git.
