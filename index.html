@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Simulador Naval - Compensação Automática</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Arial; background: #1a1a1a; }
+        .painel {
+            position: fixed; top: 15px; left: 15px; background: rgba(255,255,255,0.95);
+            padding: 15px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            display: flex; flex-direction: column; gap: 8px; z-index: 10; width: 280px;
+        }
+        .linha { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+        input { width: 65px; padding: 5px; border: 1px solid #bbb; border-radius: 4px; text-align: center; font-weight: bold; }
+        label { font-size: 11px; font-weight: bold; color: #2c3e50; text-transform: uppercase; }
+        .secao-titulo { border-bottom: 2px solid #2980b9; margin-top: 10px; font-size: 12px; color: #2980b9; font-weight: bold; padding-bottom: 3px; }
+        .status-box { background: #2c3e50; color: #ecf0f1; padding: 8px; border-radius: 4px; font-size: 11px; text-align: center; margin-top: 5px; line-height: 1.4; transition: 0.3s; }
+        .aviso { color: #ff4757; font-weight: bold; }
+        .compensando { color: #2ecc71; font-weight: bold; } /* Verde para indicar o sistema agindo */
+        button { width: 100%; padding: 10px; cursor: pointer; background: #2980b9; color: white; border: none; border-radius: 4px; font-weight: bold; margin-top: 5px; transition: 0.3s; }
+    </style>
+</head>
+<body>
+
+<div class="painel">
+    <div class="secao-titulo">ESTADO DA EMBARCAÇÃO</div>
+    <div id="statusTxt" class="status-box">Aguardando Início...</div>
+    
+    <div class="secao-titulo">PORÕES (X-BALANCE)</div>
+    <div class="linha"><label>C1 (PROA-BB)</label><input id="carga1" type="number" value="0"></div>
+    <div class="linha"><label>C2 (PROA-BE)</label><input id="carga2" type="number" value="0"></div>
+    <div class="linha"><label>C3 (POPA-BB)</label><input id="carga3" type="number" value="0"></div>
+    <div class="linha"><label>C4 (POPA-BE)</label><input id="carga4" type="number" value="0"></div>
+    
+    <div class="secao-titulo" style="color: #2980b9;">LASTRO (SISTEMA AUTO-COMPENSADO)</div>
+    <div class="linha"><label>L1 (ASA-BB)</label><input id="lastro1" type="number" value="150"></div>
+    <div class="linha"><label>L2 (ASA-BE)</label><input id="lastro2" type="number" value="150"></div>
+
+    <div class="secao-titulo">CONTROLO DE OPERAÇÃO</div>
+    <button id="btnOperacao">INICIAR CICLO</button>
+
+    <div class="secao-titulo">NAVEGAÇÃO</div>
+    <div class="linha"><label>Rumo (Giro)</label><input id="rotY" type="number" value="0"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script>
+/* CONFIGURAÇÃO THREE.JS */
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xddeeff);
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth/window.innerHeight, 0.1, 5000);
+camera.position.set(800, 600, 1100);
+camera.lookAt(0, 0, 0);
+
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+const light = new THREE.DirectionalLight(0xffffff, 1.5);
+light.position.set(300, 800, 400);
+scene.add(light);
+scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+
+/* MAR */
+const seaGeo = new THREE.PlaneGeometry(8000, 8000, 40, 40);
+const sea = new THREE.Mesh(seaGeo, new THREE.MeshPhongMaterial({ color: 0x1e5491, transparent: true, opacity: 0.6, wireframe: true }));
+sea.rotation.x = -Math.PI / 2;
+scene.add(sea);
+
+/* NAVIO */
+const navioPivot = new THREE.Group();
+scene.add(navioPivot);
+const cascoVisual = new THREE.Group();
+navioPivot.add(cascoVisual);
+
+const shape = new THREE.Shape();
+shape.moveTo(-140, 100); shape.lineTo(140, 100); shape.lineTo(130, 50);
+shape.lineTo(100, -100); shape.lineTo(0, -120); shape.lineTo(-100, -100);
+shape.lineTo(-130, 50); shape.lineTo(-140, 100);
+
+const geometry = new THREE.ExtrudeGeometry(shape, { depth: 20, bevelEnabled: false });
+geometry.center();
+const casco = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0xfafafa, transparent: true, opacity: 0.5, side: THREE.DoubleSide }));
+casco.scale.set(2.5, 1, 35); 
+cascoVisual.add(casco);
+
+const cabine = new THREE.Mesh(new THREE.BoxGeometry(160, 120, 100), new THREE.MeshStandardMaterial({ color: 0xcccccc }));
+cabine.position.set(0, 160, -350);
+cascoVisual.add(cabine);
+
+/* ESTRUTURAS INTERNAS */
+const listaCargas = [];
+const listaLastros = [];
+const alturaMaxCarga = 140;
+
+const configPoroes = [{ x: -70, z: 120 }, { x: 70, z: 120 }, { x: -70, z: -80 }, { x: 70, z: -80 }];
+const configLastros = [{ x: -175, z: 20 }, { x: 175, z: 20 }];
+
+function criarVolumes() {
+    configPoroes.forEach(p => {
+        const grupo = new THREE.Group(); grupo.position.set(p.x, -100, p.z); cascoVisual.add(grupo);
+        const geo = new THREE.BoxGeometry(130, alturaMaxCarga, 180);
+        const cMesh = new THREE.Mesh(new THREE.BoxGeometry(128, alturaMaxCarga, 178), new THREE.MeshStandardMaterial({ color: 0x8B4513 }));
+        cMesh.geometry.translate(0, alturaMaxCarga/2, 0); cMesh.scale.y = 0.001;
+        grupo.add(cMesh); listaCargas.push(cMesh);
+    });
+    configLastros.forEach(p => {
+        const grupo = new THREE.Group(); grupo.position.set(p.x, -100, p.z); cascoVisual.add(grupo);
+        const lMesh = new THREE.Mesh(new THREE.BoxGeometry(48, alturaMaxCarga, 548), new THREE.MeshStandardMaterial({ color: 0x00aaff }));
+        lMesh.geometry.translate(0, alturaMaxCarga/2, 0); lMesh.scale.y = 0.001;
+        grupo.add(lMesh); listaLastros.push(lMesh);
+    });
+}
+criarVolumes();
+
+/* FÍSICA E ESTABILIDADE */
+let anguloBandaGlobal = 0;
+
+function calcularEstabilidade() {
+    const c = ["carga1", "carga2", "carga3", "carga4"].map(id => parseFloat(document.getElementById(id).value) || 0);
+    const l = ["lastro1", "lastro2"].map(id => parseFloat(document.getElementById(id).value) || 0);
+    const rumo = parseFloat(document.getElementById('rotY').value) || 0;
+
+    const pesoAtual = [...c, ...l].reduce((a, b) => a + b, 0);
+    const pesoReferencia = 200;
+
+    navioPivot.position.y = (pesoReferencia - pesoAtual) * 0.25;
+    navioPivot.rotation.y = THREE.MathUtils.degToRad(rumo);
+
+    const bombordo = (c[0] + c[2]) * 70 + (l[0] * 175);
+    const boreste = (c[1] + c[3]) * 70 + (l[1] * 175);
+    anguloBandaGlobal = (bombordo - boreste) * 0.0015; 
+    const anguloTrim = ((c[0]+c[1]) - (c[2]+c[3])) * 0.08;
+
+    cascoVisual.rotation.z = THREE.MathUtils.degToRad(anguloBandaGlobal);
+    cascoVisual.rotation.x = THREE.MathUtils.degToRad(anguloTrim);
+
+    c.forEach((v, i) => listaCargas[i].scale.y = Math.max(0.001, v/100));
+    l.forEach((v, i) => listaLastros[i].scale.y = Math.max(0.001, v/100));
+
+    const statusBox = document.getElementById('statusTxt');
+    let situacao = "SITUAÇÃO: ESTÁVEL";
+    let corFundo = "#2c3e50";
+    
+    if (Math.abs(anguloBandaGlobal) > 8) {
+        situacao = '<span class="compensando">AUTO-COMPENSANDO BANDA...</span>';
+        corFundo = "#1e3a29"; // Tom verde escuro de correção
+    }
+    
+    statusBox.style.background = corFundo;
+    statusBox.innerHTML = `BANDA: ${anguloBandaGlobal.toFixed(1)}° | TRIM: ${anguloTrim.toFixed(1)}°<br>
+                           PESO: ${pesoAtual.toFixed(0)}u | CALADO: ${(pesoAtual-pesoReferencia).toFixed(0)}<br>
+                           ${situacao}`;
+}
+
+/* OPERAÇÃO AUTOMÁTICA COM COMPENSAÇÃO DINÂMICA (SWAP) */
+let operando = false;
+let timer;
+let modoDescarga = false;
+
+document.getElementById('btnOperacao').onclick = function() {
+    if(operando) { clearInterval(timer); operando = false; this.innerText = "RETOMAR"; return; }
+    operando = true;
+    
+    timer = setInterval(() => {
+        let mudou = false;
+        const inputs = {
+            l1: document.getElementById('lastro1'), l2: document.getElementById('lastro2'),
+            c1: document.getElementById('carga1'), c2: document.getElementById('carga2'),
+            c3: document.getElementById('carga3'), c4: document.getElementById('carga4')
+        };
+
+        // LÓGICA DE VELOCIDADE DINÂMICA (SWAP)
+        // Se a banda for > 8°, trocamos as velocidades para equilibrar
+        let v1 = 4, v2 = 2; // Default inicial
+        if (anguloBandaGlobal > 8) { v1 = 2; v2 = 4; } // L1 abranda, L2 acelera
+        else if (anguloBandaGlobal < -8) { v1 = 4; v2 = 2; } // (Caso já estivesse invertido)
+
+        if (!modoDescarga) {
+            this.innerText = "CARREGANDO (AUTO-SYNC)...";
+            // Grupo L1 (BB) -> C1 + C4
+            if(parseFloat(inputs.l1.value) > 0) {
+                let fluxo = Math.min(parseFloat(inputs.l1.value), v1);
+                inputs.l1.value = (parseFloat(inputs.l1.value) - fluxo).toFixed(0);
+                inputs.c1.value = (parseFloat(inputs.c1.value) + (fluxo/2)).toFixed(0);
+                inputs.c4.value = (parseFloat(inputs.c4.value) + (fluxo/2)).toFixed(0);
+                mudou = true;
+            }
+            // Grupo L2 (BE) -> C2 + C3
+            if(parseFloat(inputs.l2.value) > 0) {
+                let fluxo = Math.min(parseFloat(inputs.l2.value), v2);
+                inputs.l2.value = (parseFloat(inputs.l2.value) - fluxo).toFixed(0);
+                inputs.c2.value = (parseFloat(inputs.c2.value) + (fluxo/2)).toFixed(0);
+                inputs.c3.value = (parseFloat(inputs.c3.value) + (fluxo/2)).toFixed(0);
+                mudou = true;
+            }
+        } else {
+            this.innerText = "DESCARREGANDO (AUTO-SYNC)...";
+            if(parseFloat(inputs.c1.value) > 0 || parseFloat(inputs.c4.value) > 0) {
+                let fluxo = v1;
+                inputs.l1.value = (parseFloat(inputs.l1.value) + fluxo).toFixed(0);
+                inputs.c1.value = Math.max(0, parseFloat(inputs.c1.value) - (fluxo/2)).toFixed(0);
+                inputs.c4.value = Math.max(0, parseFloat(inputs.c4.value) - (fluxo/2)).toFixed(0);
+                mudou = true;
+            }
+            if(parseFloat(inputs.c2.value) > 0 || parseFloat(inputs.c3.value) > 0) {
+                let fluxo = v2;
+                inputs.l2.value = (parseFloat(inputs.l2.value) + fluxo).toFixed(0);
+                inputs.c2.value = Math.max(0, parseFloat(inputs.c2.value) - (fluxo/2)).toFixed(0);
+                inputs.c3.value = Math.max(0, parseFloat(inputs.c3.value) - (fluxo/2)).toFixed(0);
+                mudou = true;
+            }
+        }
+
+        if(!mudou) { 
+            clearInterval(timer); operando = false; modoDescarga = !modoDescarga;
+            this.innerText = modoDescarga ? "INICIAR DESCARGA" : "INICIAR CARREGAMENTO";
+            this.style.background = modoDescarga ? "#e67e22" : "#2980b9";
+        }
+        calcularEstabilidade();
+    }, 60);
+};
+
+document.querySelectorAll("input").forEach(i => i.addEventListener("input", calcularEstabilidade));
+
+function animate() {
+    requestAnimationFrame(animate);
+    const tempo = Date.now() * 0.001;
+    const vertices = seaGeo.attributes.position.array;
+    for (let i = 0; i < vertices.length; i += 3) {
+        vertices[i+2] = Math.sin(vertices[i] * 0.01 + tempo) * 2;
+    }
+    seaGeo.attributes.position.needsUpdate = true;
+    renderer.render(scene, camera);
+}
+calcularEstabilidade();
+animate();
+</script>
+</body>
+</html>
